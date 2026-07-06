@@ -35,8 +35,17 @@ env.addConstraint(screenBounds);
 
 const motor = new Actuator(cart, 1500);
 
-// 3. Initialize Agent (5 inputs for double pendulum, 2 actions)
-const agent = new DQNAgent(5, 2);
+// 3. Initialize Agent
+const agent = new DQNAgent(6, 2);
+
+// ==========================================
+// FIX 1: THE PERSONALITY OVERRIDE
+// The double pendulum is wildly complex. It needs to stay curious for MUCH longer.
+// 0.995 hits 1% curiosity at ep 900. 0.9995 hits 1% at ep 9000!
+agent.epsilonDecay = 0.9995;
+// Smaller learning steps prevent the MSE Loss from suddenly jumping or exploding.
+agent.learningRate = 0.0005;
+// ==========================================
 
 // Diagnostic Histories
 let episode = 1;
@@ -45,9 +54,12 @@ let maxScore = 0;
 const scoreHistory: number[] = [];
 const lossHistory: number[] = [];
 const qValueHistory: number[] = [];
+const movingAverageHistory: number[] = [];
 
 let currentLoss = 0;
 let currentQ = 0;
+let currentMovingAvg = 0;
+let maxMovingAvg = 0;
 
 function resetWorld() {
     cart.position.x = 400;
@@ -71,9 +83,13 @@ function resetWorld() {
     motor.activeDirection = 0;
 }
 
-// THE MOST IMPORTANT FIX: NORMALIZATION
-// Neural networks explode if you feed them raw pixel coordinates like "700".
-// Everything must be scaled to roughly between -1.0 and 1.0.
+// Utility to enforce strict bounds on inputs so gradients never explode
+function clamp(val: number, min: number, max: number): number {
+    if (isNaN(val)) return 0; // Absolute failsafe against physics glitches
+    return Math.max(min, Math.min(max, val));
+}
+
+// THE MOST IMPORTANT FIX: NORMALIZATION, WRAP-AROUNDS, & CLAMPING
 function senseAndNormalize(dt: number): number[] {
     const dx1 = pole1.position.x - cart.position.x;
     const dy1 = cart.position.y - pole1.position.y;
@@ -91,15 +107,28 @@ function senseAndNormalize(dt: number): number[] {
     const oldA1 = Math.atan2(oldDx1, oldDy1);
     const oldA2 = Math.atan2(oldDx2, oldDy2);
 
-    const v1 = (a1 - oldA1) / dt;
-    const v2 = (a2 - oldA2) / dt;
+    // FIX 2: Prevent Angle Wrap-Around Explosions! 
+    // If angle jumps from PI to -PI, velocity spikes to infinity and causes NaNs.
+    let da1 = a1 - oldA1;
+    if (da1 > Math.PI) da1 -= 2 * Math.PI;
+    if (da1 < -Math.PI) da1 += 2 * Math.PI;
+    const v1 = da1 / dt;
 
+    let da2 = a2 - oldA2;
+    if (da2 > Math.PI) da2 -= 2 * Math.PI;
+    if (da2 < -Math.PI) da2 += 2 * Math.PI;
+    const v2 = da2 / dt;
+
+    const cartV = (cart.position.x - cart.oldPosition.x) / dt;
+
+    // FIX 3: Strictly Clamp everything to [-1.0, 1.0] so the Brain never catches on fire.
     return [
-        (cart.position.x - 400) / 400, // Normalized X: roughly [-1, 1]
-        a1 / 1.0,                      // Normalized Angle 1
-        a2 / 1.0,                      // Normalized Angle 2
-        v1 / 10.0,                     // Normalized Velocity 1
-        v2 / 10.0                      // Normalized Velocity 2
+        clamp((cart.position.x - 400) / 400, -1, 1),
+        clamp(cartV / 500.0, -1, 1),
+        clamp(a1 / 1.0, -1, 1),
+        clamp(a2 / 1.0, -1, 1),
+        clamp(v1 / 10.0, -1, 1),
+        clamp(v2 / 10.0, -1, 1)
     ];
 }
 
@@ -107,10 +136,7 @@ const FIXED_DT = 0.016;
 resetWorld();
 let currentState = senseAndNormalize(FIXED_DT);
 
-// Since Deep Learning requires heavy calculus matrix multiplications,
-// doing 50 steps per frame will freeze the browser. 2 steps keeps it 
-// visually smooth while allowing the neural network to train.
-const STEPS_PER_FRAME = 2;
+const STEPS_PER_FRAME = 1;
 
 function step() {
     for (let i = 0; i < STEPS_PER_FRAME; i++) {
@@ -122,35 +148,51 @@ function step() {
 
         const nextState = senseAndNormalize(FIXED_DT);
         const rawX = cart.position.x;
-        const rawA1 = nextState[1] * 1.0;
-        const rawA2 = nextState[2] * 1.0;
+        const rawA1 = nextState[2] * 1.0;
+        const rawA2 = nextState[3] * 1.0;
 
-        const isDead = Math.abs(rawA1) > 0.8 || Math.abs(rawA2) > 0.8 || rawX < 50 || rawX > 750;
+        // Failsafe: if the physics engine explodes to NaN, instantly kill the episode
+        let isDead = false;
+        if (isNaN(rawX) || isNaN(rawA1) || isNaN(rawA2)) {
+            isDead = true;
+        } else {
+            isDead = Math.abs(rawA1) > 0.8 || Math.abs(rawA2) > 0.8 || rawX < 50 || rawX > 750;
+        }
 
-        // Shaped reward: fight to stay completely upright
-        const reward = isDead ? -100 : (0.5 * Math.cos(rawA1) + 0.5 * Math.cos(rawA2));
+        // Reward: Positive for staying upright, slightly penalized for drifting from center
+        const centerPenalty = Math.abs(rawX - 400) / 400;
+        const reward = isDead ? -10 : (0.5 * Math.cos(rawA1) + 0.5 * Math.cos(rawA2) - 0.2 * centerPenalty);
 
         agent.remember(currentState, action, reward, nextState, isDead);
 
         // Train and capture metrics
         const metrics = agent.replay();
         if (metrics) {
-            currentLoss = currentLoss * 0.99 + metrics.loss * 0.01; // Smooth it out
-            currentQ = currentQ * 0.99 + metrics.qValue * 0.01;
+            // Protect our diagnostic graphs from the occasional Math weirdness
+            if (!isNaN(metrics.loss) && !isNaN(metrics.qValue)) {
+                currentLoss = currentLoss * 0.99 + metrics.loss * 0.01;
+                currentQ = currentQ * 0.99 + metrics.qValue * 0.01;
 
-            // Record every few steps to avoid giant arrays slowing down canvas draw
-            if (Math.random() < 0.05) {
-                lossHistory.push(currentLoss);
-                qValueHistory.push(currentQ);
-                if (lossHistory.length > 200) lossHistory.shift();
-                if (qValueHistory.length > 200) qValueHistory.shift();
+                if (Math.random() < 0.05) {
+                    lossHistory.push(currentLoss);
+                    qValueHistory.push(currentQ);
+                    if (lossHistory.length > 200) lossHistory.shift();
+                    if (qValueHistory.length > 200) qValueHistory.shift();
+                }
             }
         }
 
         if (isDead) {
             if (score > maxScore) maxScore = score;
+
             scoreHistory.push(score);
-            if (scoreHistory.length > 200) scoreHistory.shift();
+            if (scoreHistory.length > 100) scoreHistory.shift();
+
+            currentMovingAvg = scoreHistory.reduce((a, b) => a + b, 0) / scoreHistory.length;
+            if (currentMovingAvg > maxMovingAvg) maxMovingAvg = currentMovingAvg;
+
+            movingAverageHistory.push(currentMovingAvg);
+            if (movingAverageHistory.length > 200) movingAverageHistory.shift();
 
             agent.decayEpsilon();
             resetWorld();
@@ -172,26 +214,29 @@ function step() {
 // ADVANCED DIAGNOSTICS UI
 // ==========================================
 function drawDiagnostics() {
-    // 1. Text Stats
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(10, 10, 250, 180);
+    ctx.fillRect(10, 10, 250, 210);
     ctx.fillStyle = 'white';
     ctx.font = '14px monospace';
-    ctx.fillText(`Episode:  ${episode}`, 20, 35);
-    ctx.fillText(`Score:    ${score.toFixed(1)}`, 20, 55);
-    ctx.fillText(`MaxScore: ${maxScore.toFixed(1)}`, 20, 75);
-    ctx.fillText(`Chaos(E): ${(agent.epsilon * 100).toFixed(1)}%`, 20, 95);
+    ctx.fillText(`Episode:   ${episode}`, 20, 35);
+    ctx.fillText(`Score:     ${score.toFixed(1)}`, 20, 55);
+    ctx.fillText(`MaxScore:  ${maxScore.toFixed(1)}`, 20, 75);
 
-    // Neural Net specific stats
-    ctx.fillStyle = '#ef4444'; // Red
-    ctx.fillText(`MSE Loss: ${currentLoss.toFixed(4)}`, 20, 130);
-    ctx.fillStyle = '#8b5cf6'; // Purple
-    ctx.fillText(`Avg Q-Val: ${currentQ.toFixed(2)}`, 20, 150);
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText(`MovAvg:    ${currentMovingAvg.toFixed(1)}`, 20, 95);
+    ctx.fillText(`MaxMovAvg: ${maxMovingAvg.toFixed(1)}`, 20, 115);
 
-    // 2. Draw Mini-Charts
+    ctx.fillStyle = 'white';
+    ctx.fillText(`Chaos(E):  ${(agent.epsilon * 100).toFixed(1)}%`, 20, 135);
+
+    ctx.fillStyle = '#ef4444';
+    ctx.fillText(`MSE Loss:  ${currentLoss.toFixed(4)}`, 20, 170);
+    ctx.fillStyle = '#8b5cf6';
+    ctx.fillText(`Avg Q-Val: ${currentQ.toFixed(2)}`, 20, 190);
+
     drawChart(lossHistory, canvas.width - 220, 20, 200, 60, 'MSE Loss', '#ef4444');
     drawChart(qValueHistory, canvas.width - 220, 90, 200, 60, 'Avg Max Q', '#8b5cf6');
-    drawChart(scoreHistory, canvas.width - 220, 160, 200, 60, 'Scores', '#4ade80');
+    drawChart(movingAverageHistory, canvas.width - 220, 160, 200, 60, 'Moving Avg', '#4ade80');
 }
 
 function drawChart(data: number[], x: number, y: number, w: number, h: number, label: string, color: string) {
@@ -206,7 +251,6 @@ function drawChart(data: number[], x: number, y: number, w: number, h: number, l
 
     if (data.length < 2) return;
 
-    // Auto-scale Y axis
     const max = Math.max(...data, 1);
     const min = Math.min(...data, 0);
     const range = (max - min) || 1;

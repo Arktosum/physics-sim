@@ -14,18 +14,15 @@ export class NeuralNetwork {
      * and returns the final prediction as an array of numbers (e.g. Q-Values).
      */
     public predict(inputArray: number[]): number[] {
-        // 1. Convert the flat input array into a column Matrix (Rows = length, Cols = 1)
         let currentData = new Matrix(inputArray.length, 1);
         for (let i = 0; i < inputArray.length; i++) {
             currentData.data[i] = inputArray[i];
         }
 
-        // 2. Push the data forward sequentially through the Lego bricks
         for (const layer of this.layers) {
             currentData = layer.forward(currentData);
         }
 
-        // 3. Convert the final column Matrix back into a flat JavaScript array
         return Array.from(currentData.data);
     }
 
@@ -50,8 +47,13 @@ export class NeuralNetwork {
 
         for (let i = 0; i < targetArray.length; i++) {
             const error = currentData.data[i] - targetArray[i];
-            gradient.data[i] = error;
-            totalError += error * error; // Squared Error
+
+            // THE FIX: Gradient Clipping (Huber Loss approximation)
+            // If the agent dies (-10 penalty), the error is massive. We clip the 
+            // gradient to [-1, 1] so it takes a controlled step instead of exploding.
+            gradient.data[i] = Math.max(-1, Math.min(1, error));
+
+            totalError += error * error; // We keep true MSE for the UI chart
         }
 
         const mseLoss = totalError / targetArray.length;
