@@ -29,13 +29,8 @@ env.addConstraint(screenBounds);
 
 const motor = new Actuator(cart, 1500);
 
-// PROPORTIONAL THRUST: instead of just -1/+1, give the agent a spread of
-// force levels to choose from, including 0 (coast — genuinely new capability,
-// the old 2-action version could never just "let go").
-// These are fractions of motor.thrustPower, matching how Actuator.apply()
-// already computes force = activeDirection * thrustPower.
 const THRUST_LEVELS = [-1.0, -0.66, -0.33, 0.0, 0.33, 0.66, 1.0];
-const ENERGY_PENALTY_WEIGHT = 0.02; // small cost for using force, like real motor draw
+const ENERGY_PENALTY_WEIGHT = 0.02;
 
 const agent = new DQNAgent(4, THRUST_LEVELS.length);
 agent.epsilonDecay = 0.995;
@@ -56,6 +51,11 @@ let currentQ = 0;
 let currentMovingAvg = 0;
 let maxMovingAvg = 0;
 let latestQValues: number[] = new Array(THRUST_LEVELS.length).fill(0);
+
+// NEW: throughput tracking, so you can actually see the speedup.
+let stepsThisSecond = 0;
+let stepsPerSecond = 0;
+let lastThroughputCheck = performance.now();
 
 function resetWorld() {
     cart.position.x = 400;
@@ -98,69 +98,94 @@ const FIXED_DT = 0.016;
 resetWorld();
 let currentState = senseAndNormalize(FIXED_DT);
 
-function step() {
-    for (let i = 0; i < 2; i++) {
-        currentActionIndex = agent.getAction(currentState);
-        const thrustFraction = THRUST_LEVELS[currentActionIndex];
-        motor.activeDirection = thrustFraction;
-        motor.apply();
-        env.update(FIXED_DT);
+// ==========================================
+// ONE ENVIRONMENT STEP — no rendering in here at all.
+// This is the unit of work the training loop hammers on as fast as it can.
+// ==========================================
+function doOneStep() {
+    currentActionIndex = agent.getAction(currentState);
+    const thrustFraction = THRUST_LEVELS[currentActionIndex];
+    motor.activeDirection = thrustFraction;
+    motor.apply();
+    env.update(FIXED_DT);
 
-        const nextState = senseAndNormalize(FIXED_DT);
-        const rawA = nextState[2];
-        const isDead = Math.abs(rawA) > 0.8 || cart.position.x < 50 || cart.position.x > 750;
+    const nextState = senseAndNormalize(FIXED_DT);
+    const rawA = nextState[2];
+    const isDead = Math.abs(rawA) > 0.8 || cart.position.x < 50 || cart.position.x > 750;
 
-        // Base survival reward, minus a small penalty for how hard the motor is working.
-        // This is what makes "coast when balanced" an actually attractive strategy
-        // rather than just an available-but-ignored option.
-        const reward = isDead
-            ? -10
-            : 1 - ENERGY_PENALTY_WEIGHT * Math.abs(thrustFraction);
+    const reward = isDead
+        ? -10
+        : 1 - ENERGY_PENALTY_WEIGHT * Math.abs(thrustFraction);
 
-        agent.remember(currentState, currentActionIndex, reward, nextState, isDead);
-        const metrics = agent.replay();
-        if (metrics && !isNaN(metrics.loss)) {
-            currentLoss = currentLoss * 0.99 + metrics.loss * 0.01;
-            currentQ = currentQ * 0.99 + metrics.qValue * 0.01;
-            if (Math.random() < 0.05) {
-                lossHistory.push(currentLoss);
-                qValueHistory.push(currentQ);
-                if (lossHistory.length > 200) lossHistory.shift();
-                if (qValueHistory.length > 200) qValueHistory.shift();
-            }
-        }
-
-        if (isDead) {
-            if (score > maxScore) maxScore = score;
-            scoreHistory.push(score);
-            if (scoreHistory.length > 100) scoreHistory.shift();
-            currentMovingAvg = scoreHistory.reduce((a, b) => a + b, 0) / scoreHistory.length;
-            if (currentMovingAvg > maxMovingAvg) maxMovingAvg = currentMovingAvg;
-            movingAverageHistory.push(currentMovingAvg);
-            if (movingAverageHistory.length > 200) movingAverageHistory.shift();
-            agent.decayEpsilon();
-            resetWorld();
-            episode++;
-            score = 0;
-            currentState = senseAndNormalize(FIXED_DT);
-        } else {
-            score += reward;
-            currentState = nextState;
+    agent.remember(currentState, currentActionIndex, reward, nextState, isDead);
+    const metrics = agent.replay();
+    if (metrics && !isNaN(metrics.loss)) {
+        currentLoss = currentLoss * 0.99 + metrics.loss * 0.01;
+        currentQ = currentQ * 0.99 + metrics.qValue * 0.01;
+        if (Math.random() < 0.05) {
+            lossHistory.push(currentLoss);
+            qValueHistory.push(currentQ);
+            if (lossHistory.length > 200) lossHistory.shift();
+            if (qValueHistory.length > 200) qValueHistory.shift();
         }
     }
 
-    // Grab Q-values for the final state this frame, purely for the UI panel below.
-    latestQValues = agent.getQValues(currentState);
+    if (isDead) {
+        if (score > maxScore) maxScore = score;
+        scoreHistory.push(score);
+        if (scoreHistory.length > 100) scoreHistory.shift();
+        currentMovingAvg = scoreHistory.reduce((a, b) => a + b, 0) / scoreHistory.length;
+        if (currentMovingAvg > maxMovingAvg) maxMovingAvg = currentMovingAvg;
+        movingAverageHistory.push(currentMovingAvg);
+        if (movingAverageHistory.length > 200) movingAverageHistory.shift();
+        agent.decayEpsilon();
+        resetWorld();
+        episode++;
+        score = 0;
+        currentState = senseAndNormalize(FIXED_DT);
+    } else {
+        score += reward;
+        currentState = nextState;
+    }
 
+    stepsThisSecond++;
+}
+
+// ==========================================
+// TRAINING LOOP — runs as fast as the CPU allows, independent of rendering.
+// Budgets ~8ms of work per tick, then yields via setTimeout(fn, 0) so the
+// browser tab stays responsive (can still paint, handle input, etc.)
+// ==========================================
+const TRAIN_TIME_BUDGET_MS = 8;
+
+function trainLoop() {
+    const start = performance.now();
+    while (performance.now() - start < TRAIN_TIME_BUDGET_MS) {
+        doOneStep();
+    }
+
+    const now = performance.now();
+    if (now - lastThroughputCheck >= 1000) {
+        stepsPerSecond = stepsThisSecond;
+        stepsThisSecond = 0;
+        lastThroughputCheck = now;
+    }
+
+    setTimeout(trainLoop, 0);
+}
+
+// ==========================================
+// RENDER LOOP — steady 60fps, reads whatever state currently exists.
+// Completely decoupled from how many training steps have happened.
+// ==========================================
+function renderLoop() {
+    latestQValues = agent.getQValues(currentState);
     renderer.render(env);
     drawThrustGauge();
     drawDiagnostics();
-    requestAnimationFrame(step);
+    requestAnimationFrame(renderLoop);
 }
 
-// Proportional force gauge under the cart: a filled bar growing left (red)
-// or right (green) from center, proportional to |thrustFraction|, instead
-// of a fixed-size dot that only ever said "fully left" or "fully right".
 function drawThrustGauge() {
     const centerX = cart.position.x;
     const y = trackHeight + 30;
@@ -186,7 +211,7 @@ function drawThrustGauge() {
 
 function drawDiagnostics() {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(10, 10, 250, 210);
+    ctx.fillRect(10, 10, 250, 230);
     ctx.fillStyle = 'white';
     ctx.font = '14px monospace';
     ctx.fillText(`Episode:   ${episode}`, 20, 35);
@@ -194,8 +219,11 @@ function drawDiagnostics() {
     ctx.fillText(`MovAvg:    ${currentMovingAvg.toFixed(1)}`, 20, 75);
     ctx.fillText(`Loss:      ${currentLoss.toFixed(4)}`, 20, 95);
     ctx.fillText(`Q-Val:     ${currentQ.toFixed(2)}`, 20, 115);
-    drawChart(lossHistory, 20, 130, 220, 40, 'MSE Loss', '#ef4444');
-    drawChart(qValueHistory, 20, 175, 220, 40, 'Avg Max Q', '#8b5cf6');
+    ctx.fillStyle = '#facc15';
+    ctx.fillText(`Steps/sec: ${stepsPerSecond}`, 20, 135);
+    ctx.fillStyle = 'white';
+    drawChart(lossHistory, 20, 150, 220, 40, 'MSE Loss', '#ef4444');
+    drawChart(qValueHistory, 20, 195, 220, 40, 'Avg Max Q', '#8b5cf6');
 
     drawActionQValues();
 }
@@ -230,9 +258,6 @@ function drawChart(data: number[], x: number, y: number, w: number, h: number, l
     ctx.stroke();
 }
 
-// NEW: bar chart of Q-values across all thrust levels, so you can see
-// whether the agent has a sharp, confident preference or is still
-// dithering between adjacent thrust levels.
 function drawActionQValues() {
     const panelX = canvas.width - 260;
     const panelY = 10;
@@ -269,4 +294,5 @@ function drawActionQValues() {
     }
 }
 
-requestAnimationFrame(step);
+trainLoop();
+renderLoop();
