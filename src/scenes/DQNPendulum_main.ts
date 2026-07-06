@@ -1,9 +1,9 @@
-import { Environment } from './engine/Environment';
-import { CanvasRenderer } from './renderer/CanvasRenderer';
-import { PointMass } from './state/PointMass';
-import { AxisConstraint, BoundaryConstraint, DistanceConstraint } from './engine/Constraint';
-import { Actuator } from './engine/Actuator';
-import { DQNAgent } from './engine/DQNAgent';
+import { Environment } from '../engine/Environment';
+import { CanvasRenderer } from '../renderer/CanvasRenderer';
+import { PointMass } from '../state/PointMass';
+import { AxisConstraint, BoundaryConstraint, DistanceConstraint } from '../engine/Constraint';
+import { Actuator } from '../engine/Actuator';
+import { DQNAgent } from '../engine/DQNAgent';
 
 // 1. Initialize Canvas
 const canvas = document.getElementById('sim-canvas') as HTMLCanvasElement;
