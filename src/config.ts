@@ -20,7 +20,7 @@ export const FIXED_DT = 0.016;
 export const TRAIN_TIME_BUDGET_MS = 50;
 
 export const AGENT_CONFIG = {
-    inputSize: 4,
-    epsilonDecay: 0.997,
-    learningRate: 0.001,
+    inputSize: 6,
+    epsilonDecay: 0.995,
+    learningRate: 0.0005,
 };

@@ -13,7 +13,7 @@ import {
 } from './config';
 import { Trainer } from './training/Trainer';
 import { DiagnosticsPanel } from './ui/DiagnosticsPanel';
-import { CartPoleTask } from './sim/CartPoleTask';
+import { DoublePendulumTask } from './sim/DoublePendulumTask';
 
 // ==========================================
 // Wiring only. Every actual behavior lives in sim/CartPoleTask,
@@ -26,8 +26,7 @@ canvas.height = CANVAS_HEIGHT;
 const ctx = canvas.getContext('2d')!;
 const renderer = new CanvasRenderer(canvas);
 
-const task = new CartPoleTask(CANVAS_WIDTH, CANVAS_HEIGHT, TRACK_HEIGHT, FIXED_DT, ENERGY_PENALTY_WEIGHT);
-
+const task = new DoublePendulumTask(CANVAS_WIDTH, CANVAS_HEIGHT, TRACK_HEIGHT, FIXED_DT);
 const agent = new DQNAgent(AGENT_CONFIG.inputSize, THRUST_LEVELS.length);
 agent.epsilonDecay = AGENT_CONFIG.epsilonDecay;
 agent.learningRate = AGENT_CONFIG.learningRate;
@@ -96,20 +95,20 @@ loadInput.addEventListener('change', (e: any) => {
     reader.onload = (event) => {
         if (typeof event.target?.result === 'string') {
             agent.loadJSON(event.target.result);
-            
+
             // 1. WIPE THE POISONED MEMORY!
             agent.memory.clear();
 
             // 2. Reset the physical world
             trainer.currentState = task.reset();
-            
+
             // 3. Reset the tracking metrics so they don't skew the charts
             trainer.episode = 1;
             trainer.score = 0;
             trainer.stepsThisEpisode = 0;
             trainer.currentLoss = 0;
             trainer.currentQ = 0;
-            
+
             // 4. Wipe the UI charts clean
             trainer.scoreHistory.length = 0;
             trainer.lossHistory.length = 0;
@@ -120,7 +119,7 @@ loadInput.addEventListener('change', (e: any) => {
             console.log("Brain loaded and memory wiped!");
         }
     };
-    
+
     // Clear the input value so the browser allows you to select the same file again later
     loadInput.value = '';
     reader.readAsText(file);
@@ -128,6 +127,19 @@ loadInput.addEventListener('change', (e: any) => {
 loadLabel.appendChild(loadInput);
 uiContainer.appendChild(loadLabel);
 // ==========================================
+// 4. INJECT CHAOS BUTTON
+const chaosBtn = document.createElement('button');
+chaosBtn.innerText = '🎲 Reset Chaos (Epsilon = 1.0)';
+chaosBtn.style.cursor = 'pointer';
+chaosBtn.onclick = () => {
+    agent.epsilon = 1.0;
+
+    // Optional: Wipe the memory buffer so it doesn't train on old rut data
+    agent.memory.clear();
+
+    console.log("Chaos injected! Agent is exploring again.");
+};
+uiContainer.appendChild(chaosBtn);
 
 // ==========================================
 // RENDER LOOP — steady 60fps, reads whatever state currently exists.

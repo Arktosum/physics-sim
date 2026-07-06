@@ -23,15 +23,15 @@ export class DQNAgent {
 
     constructor(inputSize: number, numActions: number) {
         this.numActions = numActions;
-        this.memory = new ReplayBuffer(10000);
+        this.memory = new ReplayBuffer(50000);
 
         // Upgraded Architecture: 128 Neurons per layer
         const createArchitecture = () => [
-            new DenseLayer(inputSize, 32),
+            new DenseLayer(inputSize, 64),
             new ReLULayer(),
-            new DenseLayer(32, 32),
+            new DenseLayer(64, 64),
             new ReLULayer(),
-            new DenseLayer(32, numActions)
+            new DenseLayer(64, numActions)
         ];
 
         this.brain = new NeuralNetwork(createArchitecture());

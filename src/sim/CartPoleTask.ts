@@ -3,12 +3,8 @@ import { PointMass } from '../state/PointMass';
 import { AxisConstraint, BoundaryConstraint, DistanceConstraint } from '../engine/Constraint';
 import { Actuator } from '../engine/Actuator';
 import { clamp } from '../lib/mathUtils'; // Assuming you have a mathUtils file for clamp
+import type { StepResult, Task } from './Task';
 
-export interface StepResult {
-    nextState: number[];
-    reward: number;
-    done: boolean;
-}
 
 /**
  * Wraps the from-scratch Verlet/PBD physics engine into a small Gym-style
@@ -18,7 +14,7 @@ export interface StepResult {
  * reward shaping) lives here. main.ts and Trainer never touch PointMass,
  * Constraint, or Actuator directly.
  */
-export class CartPoleTask {
+export class CartPoleTask implements Task {
     public readonly env: Environment;
     public readonly cart: PointMass;
     public readonly pole: PointMass;

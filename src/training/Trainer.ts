@@ -1,5 +1,5 @@
 import { DQNAgent } from '../engine/DQNAgent';
-import { CartPoleTask } from '../sim/CartPoleTask';
+import type { Task } from '../sim/Task';
 
 const SCORE_WINDOW = 100; // episodes averaged for the moving-average score
 const CHART_HISTORY_LIMIT = 200; // points kept for the loss/Q/moving-avg charts
@@ -41,7 +41,7 @@ export class Trainer {
     private lastThroughputCheck = performance.now();
 
     private readonly agent: DQNAgent;
-    private readonly task: CartPoleTask;
+    private readonly task: Task;
     private readonly thrustLevels: number[];
     public timeBudgetMs: number;
 
@@ -54,7 +54,7 @@ export class Trainer {
     private readonly dt = 0.016; // Your FIXED_DT
 
 
-    constructor(agent: DQNAgent, task: CartPoleTask, thrustLevels: number[], timeBudgetMs: number) {
+    constructor(agent: DQNAgent, task: Task, thrustLevels: number[], timeBudgetMs: number) {
         this.agent = agent;
         this.task = task;
         this.thrustLevels = thrustLevels;
