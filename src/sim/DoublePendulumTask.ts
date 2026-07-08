@@ -104,13 +104,12 @@ export class DoublePendulumTask implements Task {
         }
 
         // 4. THE NEW REWARD FUNCTION
-        // Base reward of 1.0, minus absolute angles (sharp gradient), minus center drift, minus thrust usage
         const centerPenalty = Math.abs(rawX - this.centerX) / this.centerX;
         const energyPenalty = 0.02 * Math.abs(thrustFraction);
 
         const reward = done
-            ? -1
-            : 1.0 - (0.5 * Math.abs(rawA1)) - (0.5 * Math.abs(rawA2)) - (0.2 * centerPenalty) - energyPenalty;
+            ? -20
+            : 1.0 - (0.5 * Math.abs(rawA1)) - (0.5 * Math.abs(rawA2)) - (0.5 * centerPenalty) - energyPenalty;
 
         return { nextState, reward, done };
     }
