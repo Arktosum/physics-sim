@@ -1,13 +1,39 @@
 import { Environment } from '../engine/Environment';
 
+/**
+ * The subset of Environment's shape CanvasRenderer actually reads.
+ * Environment satisfies this structurally already. This exists so a plain
+ * data snapshot posted from a training Worker (points + constraints, no
+ * class instances, no methods) can be rendered too — postMessage's
+ * structured-clone can't send class instances with their prototypes intact
+ * anyway, so the render path was always going to need to work off plain data
+ * once training moved off the main thread.
+ */
+export interface RenderablePoint {
+    position: { x: number; y: number };
+    mass: number;
+    isPinned: boolean;
+}
+export interface RenderableConstraint {
+    p1?: { position: { x: number; y: number } };
+    p2?: { position: { x: number; y: number } };
+    lockedY?: number;
+}
+export interface RenderableEnvironment {
+    points: RenderablePoint[];
+    constraints: RenderableConstraint[];
+}
+
 export class CanvasRenderer {
     private ctx: CanvasRenderingContext2D;
+    private canvas: HTMLCanvasElement;
 
-    constructor(private canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement) {
+        this.canvas = canvas;
         this.ctx = canvas.getContext('2d')!;
     }
 
-    render(env: Environment) {
+    render(env: RenderableEnvironment | Environment) {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         // 1. Draw Constraints (The Bones/Strings) FIRST

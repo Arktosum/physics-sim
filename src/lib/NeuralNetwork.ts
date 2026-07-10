@@ -4,8 +4,29 @@ import type { Layer } from './Layer';
 export class NeuralNetwork {
     public layers: Layer[];
 
+    // Reused across predict()/train()/trainWithGradient() calls instead of
+    // allocating a fresh input/gradient Matrix every time. Sizes are fixed by
+    // this network's architecture, so once these are sized on first use they
+    // never need to change — same reasoning as the per-layer scratch buffers.
+    private inputScratch: Matrix | null = null;
+    private targetScratch: Matrix | null = null;
+
     constructor(layers: Layer[]) {
         this.layers = layers;
+    }
+
+    private getInputScratch(size: number): Matrix {
+        if (!this.inputScratch || this.inputScratch.rows !== size) {
+            this.inputScratch = new Matrix(size, 1);
+        }
+        return this.inputScratch;
+    }
+
+    private getTargetScratch(size: number): Matrix {
+        if (!this.targetScratch || this.targetScratch.rows !== size) {
+            this.targetScratch = new Matrix(size, 1);
+        }
+        return this.targetScratch;
     }
 
     /**
@@ -14,10 +35,7 @@ export class NeuralNetwork {
      * and returns the final prediction as an array of numbers (e.g. Q-Values).
      */
     public predict(inputArray: number[]): number[] {
-        let currentData = new Matrix(inputArray.length, 1);
-        for (let i = 0; i < inputArray.length; i++) {
-            currentData.data[i] = inputArray[i];
-        }
+        let currentData: Matrix = this.getInputScratch(inputArray.length).setFromArray(inputArray);
 
         for (const layer of this.layers) {
             currentData = layer.forward(currentData);
@@ -32,26 +50,24 @@ export class NeuralNetwork {
      */
     public train(inputArray: number[], targetArray: number[], learningRate: number): number {
         // --- STEP 1: Forward Pass ---
-        let currentData = new Matrix(inputArray.length, 1);
-        for (let i = 0; i < inputArray.length; i++) {
-            currentData.data[i] = inputArray[i];
-        }
+        let currentData: Matrix = this.getInputScratch(inputArray.length).setFromArray(inputArray);
 
         for (const layer of this.layers) {
             currentData = layer.forward(currentData);
         }
 
         // --- STEP 2: Calculate the Initial Error Gradient & Loss ---
-        let gradient = new Matrix(targetArray.length, 1);
+        const gradientBuffer = this.getTargetScratch(targetArray.length);
+        let gradient: Matrix = gradientBuffer;
         let totalError = 0;
 
         for (let i = 0; i < targetArray.length; i++) {
             const error = currentData.data[i] - targetArray[i];
 
             // THE FIX: Gradient Clipping (Huber Loss approximation)
-            // If the agent dies (-10 penalty), the error is massive. We clip the 
+            // If the agent dies (-10 penalty), the error is massive. We clip the
             // gradient to [-1, 1] so it takes a controlled step instead of exploding.
-            gradient.data[i] = Math.max(-1, Math.min(1, error));
+            gradientBuffer.data[i] = Math.max(-1, Math.min(1, error));
 
             totalError += error * error; // We keep true MSE for the UI chart
         }
@@ -79,24 +95,61 @@ export class NeuralNetwork {
      */
     public trainWithGradient(inputArray: number[], outputGradient: number[], learningRate: number): void {
         // --- STEP 1: Forward Pass (must run first so each layer caches its input) ---
-        let currentData = new Matrix(inputArray.length, 1);
-        for (let i = 0; i < inputArray.length; i++) {
-            currentData.data[i] = inputArray[i];
-        }
+        let currentData: Matrix = this.getInputScratch(inputArray.length).setFromArray(inputArray);
 
         for (const layer of this.layers) {
             currentData = layer.forward(currentData);
         }
 
-        // --- STEP 2: Load the caller's gradient directly, no MSE/clipping involved ---
-        let gradient = new Matrix(outputGradient.length, 1);
-        for (let i = 0; i < outputGradient.length; i++) {
-            gradient.data[i] = outputGradient[i];
-        }
+        this.backwardWithGradient(outputGradient, learningRate);
+    }
 
-        // --- STEP 3: Backward Pass, identical mechanics to train() ---
+    /**
+     * Same backward pass as trainWithGradient(), but skips the forward pass
+     * entirely. ONLY safe to call when forward() (via predict()/train()/
+     * trainWithGradient()) already ran for this exact input as the very last
+     * thing done to this network — each layer's backward() reads its own
+     * cached `input`/output from that forward call, and this method doesn't
+     * re-populate them.
+     *
+     * PPOAgent.learn() calls decodeActorOutput() (a predict()) to compute
+     * mean/std for a sample, then immediately backprops a gradient derived
+     * from that same mean/std for that same sample — trainWithGradient()'s
+     * own forward pass in that path was recomputing something we'd already
+     * just computed a few lines earlier. This is that skip.
+     */
+    public backwardWithGradient(outputGradient: number[], learningRate: number): void {
+        let gradient: Matrix = this.getTargetScratch(outputGradient.length).setFromArray(outputGradient);
+
         for (let i = this.layers.length - 1; i >= 0; i--) {
             gradient = this.layers[i].backward(gradient, learningRate);
+        }
+    }
+
+    /**
+     * Batched forward pass: inputBatch is (inputSize, batchWidth) — one
+     * column per sample. Layers that implement forwardBatch() (DenseLayer)
+     * use it; parameter-free layers (ReLULayer) run their normal forward()
+     * unchanged since it's already shape-agnostic.
+     */
+    public predictBatch(inputBatch: Matrix): Matrix {
+        let currentData: Matrix = inputBatch;
+        for (const layer of this.layers) {
+            currentData = layer.forwardBatch ? layer.forwardBatch(currentData) : layer.forward(currentData);
+        }
+        return currentData;
+    }
+
+    /**
+     * Batched backward pass paired with predictBatch(): outputGradient is
+     * (outputSize, batchWidth). Same fallback rule as predictBatch() for
+     * layers without a batched implementation.
+     */
+    public backwardBatchWithGradient(outputGradient: Matrix, learningRate: number): void {
+        let gradient: Matrix = outputGradient;
+        for (let i = this.layers.length - 1; i >= 0; i--) {
+            const layer = this.layers[i];
+            gradient = layer.backwardBatch ? layer.backwardBatch(gradient, learningRate) : layer.backward(gradient, learningRate);
         }
     }
 }

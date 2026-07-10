@@ -1,7 +1,7 @@
-import { PPOTrainer } from '../training/PPOTrainer';
+import type { PPOTrainerLike } from '../training/PPOTrainer';
 
 export class PPODOMUI {
-    private trainer: PPOTrainer;
+    private trainer: PPOTrainerLike;
 
     // Text Elements
     private elEp = document.getElementById('ui-ep')!;
@@ -21,12 +21,21 @@ export class PPODOMUI {
     private elKl = document.getElementById('ui-kl')!;
     private elKlStatus = document.getElementById('ui-kl-status')!;
 
+    // Perf Diagnostics
+    private elStepsPerSec = document.getElementById('ui-steps-per-sec')!;
+    private elLastTrainMs = document.getElementById('ui-last-train-ms')!;
+    private elAvgTrainMs = document.getElementById('ui-avg-train-ms')!;
+    private elWorkerGap = document.getElementById('ui-worker-gap')!;
+    private elWorkerGapStatus = document.getElementById('ui-worker-gap-status')!;
+    private elRenderGap = document.getElementById('ui-render-gap')!;
+    private elRenderGapStatus = document.getElementById('ui-render-gap-status')!;
+
     // Canvases
     private actionCtx: CanvasRenderingContext2D;
     private scoreCtx: CanvasRenderingContext2D;
     private survivalCtx: CanvasRenderingContext2D;
 
-    constructor(trainer: PPOTrainer) {
+    constructor(trainer: PPOTrainerLike) {
         this.trainer = trainer;
         this.actionCtx = (document.getElementById('ui-action-chart') as HTMLCanvasElement).getContext('2d')!;
         this.scoreCtx = (document.getElementById('ui-score-chart') as HTMLCanvasElement).getContext('2d')!;
@@ -66,6 +75,32 @@ export class PPODOMUI {
         else if (kl > 0.08) this.setStatus(this.elKlStatus, 'DANGER (Collapsing)', 'status-bad');
         else if (kl > 0.03) this.setStatus(this.elKlStatus, 'UNSTABLE', 'status-warn');
         else this.setStatus(this.elKlStatus, 'STABLE', 'status-good');
+
+        // 5. Perf Diagnostics — the actual numbers, not guesses
+        this.elStepsPerSec.textContent = Math.round(this.trainer.stepsPerSecond).toLocaleString();
+        this.elLastTrainMs.textContent = this.trainer.lastTrainMs.toFixed(0) + 'ms';
+        this.elAvgTrainMs.textContent = this.trainer.avgTrainMs.toFixed(0) + 'ms';
+
+        // Worker gap: the Worker's own frame-interval timer fires nominally every
+        // 33ms. If the interval between firings ballooned to e.g. 400ms, the
+        // Worker's event loop itself was blocked for ~400ms — almost certainly
+        // by a chunk of train() that didn't yield often enough.
+        const workerGap = this.trainer.maxWorkerFrameGapMs;
+        this.elWorkerGap.textContent = workerGap.toFixed(0) + 'ms';
+        if (workerGap < 100) this.setStatus(this.elWorkerGapStatus, 'SMOOTH', 'status-good');
+        else if (workerGap < 300) this.setStatus(this.elWorkerGapStatus, 'HITCHING', 'status-warn');
+        else this.setStatus(this.elWorkerGapStatus, 'STALLED', 'status-bad');
+
+        // Render gap: the main thread's own rAF-to-rAF interval. Should track
+        // ~16.6ms (60fps) regardless of what the Worker is doing, since no
+        // training math runs here anymore. If THIS spikes, the freeze is on
+        // the main thread (DOM updates, canvas draw, GC from postMessage
+        // payloads) rather than in training itself.
+        const renderGap = this.trainer.mainThreadFrameGapMs;
+        this.elRenderGap.textContent = renderGap.toFixed(0) + 'ms';
+        if (renderGap < 50) this.setStatus(this.elRenderGapStatus, 'SMOOTH', 'status-good');
+        else if (renderGap < 150) this.setStatus(this.elRenderGapStatus, 'HITCHING', 'status-warn');
+        else this.setStatus(this.elRenderGapStatus, 'STALLED', 'status-bad');
 
         // Draw Charts
         this.drawActionHistogram();

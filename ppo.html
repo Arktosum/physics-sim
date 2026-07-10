@@ -172,6 +172,36 @@
           </div>
         </div>
 
+        <div class="metric-group">
+          <h3>Performance</h3>
+          <div class="metric-row">
+            <span>Steps/sec:</span>
+            <span id="ui-steps-per-sec" class="metric-value">0</span>
+          </div>
+          <div class="metric-row">
+            <span>Last Train Time:</span>
+            <span id="ui-last-train-ms" class="metric-value">0ms</span>
+          </div>
+          <div class="metric-row">
+            <span>Avg Train Time:</span>
+            <span id="ui-avg-train-ms" class="metric-value">0ms</span>
+          </div>
+          <div class="metric-row">
+            <span>Worker Max Stall (1s):</span>
+            <div>
+              <span id="ui-worker-gap" class="metric-value">0ms</span>
+              <span id="ui-worker-gap-status" class="status-badge"></span>
+            </div>
+          </div>
+          <div class="metric-row">
+            <span>Render Max Stall (1s):</span>
+            <div>
+              <span id="ui-render-gap" class="metric-value">0ms</span>
+              <span id="ui-render-gap-status" class="status-badge"></span>
+            </div>
+          </div>
+        </div>
+
         <div class="chart-container">
           <h3>Action Distribution (Last 200)</h3>
           <canvas

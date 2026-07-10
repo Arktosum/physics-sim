@@ -54,6 +54,16 @@ export class Matrix {
     }
 
     /**
+     * Copies values from a plain array into this Matrix's existing buffer,
+     * in place. Used to feed a reusable scratch Matrix from a fresh
+     * `number[]` each call without allocating a new Matrix every time.
+     */
+    public setFromArray(arr: number[] | Float32Array): this {
+        for (let i = 0; i < arr.length; i++) this.data[i] = arr[i];
+        return this;
+    }
+
+    /**
      * Converts the Matrix back to a 2D array (useful for debugging or interfacing).
      */
     public toArray(): number[][] {
@@ -80,31 +90,69 @@ export class Matrix {
         if (a.cols !== b.rows) {
             throw new Error(`Matrix mismatch: Columns of A (${a.cols}) must match Rows of B (${b.rows})`);
         }
-        const result = new Matrix(a.rows, b.cols);
+        return Matrix.dotInto(a, b, new Matrix(a.rows, b.cols));
+    }
+
+    /**
+     * Same as dot(), but writes into a caller-supplied `out` Matrix instead of
+     * allocating a new one. Training calls this thousands of times per learn()
+     * pass, so reusing a pre-sized scratch buffer here avoids a matching flood
+     * of Float32Array allocations (and the GC pauses that come with them).
+     */
+    static dotInto(a: Matrix, b: Matrix, out: Matrix): Matrix {
+        if (a.cols !== b.rows) {
+            throw new Error(`Matrix mismatch: Columns of A (${a.cols}) must match Rows of B (${b.rows})`);
+        }
+        if (out.rows !== a.rows || out.cols !== b.cols) {
+            throw new Error(`dotInto: output matrix is ${out.rows}x${out.cols}, expected ${a.rows}x${b.cols}`);
+        }
+        // Hoisted out of the inner loops: `i * a.cols` and `i * b.cols` were
+        // being recomputed on every (i, j) pair, and `k * b.cols` was being
+        // recomputed on every single (i, j, k) triple — a multiply this hot
+        // loop runs millions of times per learn() call is worth avoiding.
+        const aCols = a.cols, bCols = b.cols;
         for (let i = 0; i < a.rows; i++) {
-            for (let j = 0; j < b.cols; j++) {
+            const aRowOffset = i * aCols;
+            const outRowOffset = i * bCols;
+            for (let j = 0; j < bCols; j++) {
                 let sum = 0;
-                for (let k = 0; k < a.cols; k++) {
-                    sum += a.data[i * a.cols + k] * b.data[k * b.cols + j];
+                let bIdx = j;
+                for (let k = 0; k < aCols; k++) {
+                    sum += a.data[aRowOffset + k] * b.data[bIdx];
+                    bIdx += bCols;
                 }
-                result.data[i * b.cols + j] = sum;
+                out.data[outRowOffset + j] = sum;
             }
         }
-        return result;
+        return out;
     }
 
     /**
      * Flips rows and columns. Critical for calculating gradients during Backpropagation.
      */
     public transpose(): Matrix {
-        const result = new Matrix(this.cols, this.rows);
-        for (let i = 0; i < this.rows; i++) {
-            for (let j = 0; j < this.cols; j++) {
+        return this.transposeInto(new Matrix(this.cols, this.rows));
+    }
+
+    /**
+     * Same as transpose(), but writes into a caller-supplied `out` Matrix
+     * instead of allocating a new one. See dotInto() for why this matters.
+     */
+    public transposeInto(out: Matrix): Matrix {
+        if (out.rows !== this.cols || out.cols !== this.rows) {
+            throw new Error(`transposeInto: output matrix is ${out.rows}x${out.cols}, expected ${this.cols}x${this.rows}`);
+        }
+        const rows = this.rows, cols = this.cols;
+        for (let i = 0; i < rows; i++) {
+            const rowOffset = i * cols;
+            let outIdx = i;
+            for (let j = 0; j < cols; j++) {
                 // Read from [i, j], write to [j, i]
-                result.data[j * this.rows + i] = this.data[i * this.cols + j];
+                out.data[outIdx] = this.data[rowOffset + j];
+                outIdx += rows;
             }
         }
-        return result;
+        return out;
     }
 
     // ==========================================
@@ -129,6 +177,43 @@ export class Matrix {
             for (let i = 0; i < this.data.length; i++) this.data[i] -= n;
         }
         return this;
+    }
+
+    /**
+     * Adds a (rows, 1) column vector to every column of this matrix, in place.
+     * This is bias-broadcast for batched layers: a Dense layer's bias is one
+     * value per output neuron, added identically to every sample in the batch.
+     */
+    public addBroadcastColumn(bias: Matrix): this {
+        if (bias.rows !== this.rows || bias.cols !== 1) {
+            throw new Error(`addBroadcastColumn: bias is ${bias.rows}x${bias.cols}, expected ${this.rows}x1`);
+        }
+        for (let i = 0; i < this.rows; i++) {
+            const b = bias.data[i];
+            const rowOffset = i * this.cols;
+            for (let j = 0; j < this.cols; j++) {
+                this.data[rowOffset + j] += b;
+            }
+        }
+        return this;
+    }
+
+    /**
+     * Sums each row across all columns into a caller-supplied (rows, 1) `out`
+     * Matrix. Used to turn a batched output-gradient (one column per sample)
+     * into the single bias gradient shared by every sample in that batch.
+     */
+    public sumRowsInto(out: Matrix): Matrix {
+        if (out.rows !== this.rows || out.cols !== 1) {
+            throw new Error(`sumRowsInto: output matrix is ${out.rows}x${out.cols}, expected ${this.rows}x1`);
+        }
+        for (let i = 0; i < this.rows; i++) {
+            let sum = 0;
+            const rowOffset = i * this.cols;
+            for (let j = 0; j < this.cols; j++) sum += this.data[rowOffset + j];
+            out.data[i] = sum;
+        }
+        return out;
     }
 
     public mult(n: Matrix | number): this {
