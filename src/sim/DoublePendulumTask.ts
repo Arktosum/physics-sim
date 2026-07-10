@@ -20,6 +20,9 @@ export class DoublePendulumTask implements Task {
     private readonly rightEdge: number;
     private readonly leftEdge = 50;
 
+    public lastV1: number = 0; // Add this
+    public lastV2: number = 0; // Add this
+
     constructor(
         canvasWidth: number,
         canvasHeight: number,
@@ -106,17 +109,17 @@ export class DoublePendulumTask implements Task {
         // 4. THE NEW REWARD FUNCTION
         const centerPenalty = Math.abs(rawX - this.centerX) / this.centerX;
         const energyPenalty = 0.02 * Math.abs(thrustFraction);
+        const velocityPenalty = 0.05 * (Math.abs(this.lastV1) + Math.abs(this.lastV2));
 
         // Math.cos(angle) is 1.0 when pointing straight up (0 radians). 
         // We want to reward being near 1.0.
-        const upReward1 = Math.cos(rawA1); 
+        const upReward1 = Math.cos(rawA1);
         const upReward2 = Math.cos(rawA2);
 
-        const reward = done
-            ? -20
-            : (upReward1 + upReward2) - centerPenalty - energyPenalty;
+        const reward = done ? -20 : (upReward1 + upReward2) - centerPenalty - energyPenalty - velocityPenalty;
 
-            
+
+
         return { nextState, reward, done };
     }
 
@@ -149,20 +152,18 @@ export class DoublePendulumTask implements Task {
 
         const cartV = (this.cart.position.x - this.cart.oldPosition.x) / this.fixedDt;
 
+
+        this.lastV1 = v1;
+        this.lastV2 = v2;
+
+
         return [
-            clamp((this.cart.position.x - this.centerX) / this.centerX, -1, 1), // Cart Position
-            clamp(cartV / 500.0, -1, 1),                                        // Cart Velocity
-
-            // Pole 1 Continuous Angles
-            Math.sin(a1),
-            Math.cos(a1),
-
-            // Pole 2 Continuous Angles
-            Math.sin(a2),
-            Math.cos(a2),
-
-            clamp(v1 / 10.0, -1, 1),                                            // Pole 1 Angular Velocity
-            clamp(v2 / 10.0, -1, 1)                                             // Pole 2 Angular Velocity
-        ];
+            clamp((this.cart.position.x - this.centerX) / this.centerX, -1, 1),
+            clamp(cartV / 500.0, -1, 1),
+            Math.sin(a1), Math.cos(a1),
+            Math.sin(a2), Math.cos(a2),
+            clamp(this.lastV1 / 10.0, -1, 1),
+            clamp(this.lastV2 / 10.0, -1, 1)
+        ];;
     }
 }

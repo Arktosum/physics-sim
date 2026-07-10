@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PPO Double Pendulum</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #121212;
+        color: #d4d4d4;
+        font-family: "Courier New", Courier, monospace;
+      }
+
+      #app-container {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 20px;
+        padding: 20px;
+      }
+
+      #sim-canvas {
+        background-color: #000;
+        border: 1px solid #333;
+        border-radius: 4px;
+      }
+
+      #sidebar {
+        width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+
+      .metric-group {
+        background: #1e1e1e;
+        padding: 10px 15px;
+        border-radius: 6px;
+        border: 1px solid #3a3a3a;
+      }
+
+      .metric-group h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        color: #4fc1ff;
+        text-transform: uppercase;
+      }
+
+      .metric-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+        font-size: 13px;
+        align-items: center; /* Aligns text and badges vertically */
+      }
+
+      .metric-value {
+        font-weight: bold;
+        color: #ce9178;
+      }
+
+      /* --- New Status Badge CSS --- */
+      .status-badge {
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 8px;
+        font-weight: bold;
+      }
+      .status-good {
+        background: #1a4d2e;
+        color: #4ade80;
+      }
+      .status-warn {
+        background: #5a3a10;
+        color: #facc15;
+      }
+      .status-bad {
+        background: #7f1d1d;
+        color: #f87171;
+      }
+      /* ---------------------------- */
+
+      .chart-container {
+        background: #1e1e1e;
+        padding: 10px;
+        border-radius: 6px;
+        border: 1px solid #3a3a3a;
+      }
+
+      .chart-container h3 {
+        margin: 0 0 5px 0;
+        font-size: 12px;
+        color: #c586c0;
+      }
+
+      .sidebar-canvas {
+        width: 100%;
+        height: 100px;
+        background: #121212;
+        border: 1px solid #444;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app-container">
+      <canvas id="sim-canvas" width="800" height="600"></canvas>
+
+      <div id="sidebar">
+        <div class="metric-group">
+          <h3>Controls</h3>
+          <label
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              cursor: pointer;
+            "
+          >
+            <input type="checkbox" id="ui-render-toggle" checked />
+            Render Physics (Uncheck for Max Speed)
+          </label>
+        </div>
+
+        <div class="metric-group">
+          <h3>Episode Status</h3>
+          <div class="metric-row">
+            <span>Episode:</span> <span id="ui-ep" class="metric-value">0</span>
+          </div>
+          <div class="metric-row">
+            <span>Score:</span>
+            <span id="ui-score" class="metric-value">0.00</span>
+          </div>
+          <div class="metric-row">
+            <span>Survival:</span>
+            <span id="ui-survival" class="metric-value">0.00s</span>
+          </div>
+          <div class="metric-row">
+            <span>Max Survival:</span>
+            <span id="ui-max-survival" class="metric-value">0.00s</span>
+          </div>
+        </div>
+
+        <div class="metric-group">
+          <h3>Agent Health (PPO)</h3>
+          <div class="metric-row">
+            <span>Critic Loss:</span>
+            <span id="ui-critic-loss" class="metric-value">0.000</span>
+          </div>
+          <div class="metric-row">
+            <span>|Advantage|:</span>
+            <div>
+              <span id="ui-advantage" class="metric-value">0.00</span>
+              <span id="ui-adv-status" class="status-badge"></span>
+            </div>
+          </div>
+          <div class="metric-row">
+            <span>Clip Fraction:</span>
+            <div>
+              <span id="ui-clip" class="metric-value">0.0%</span>
+              <span id="ui-clip-status" class="status-badge"></span>
+            </div>
+          </div>
+          <div class="metric-row">
+            <span>KL Divergence:</span>
+            <div>
+              <span id="ui-kl" class="metric-value">0.0000</span>
+              <span id="ui-kl-status" class="status-badge"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <h3>Action Distribution (Last 200)</h3>
+          <canvas
+            id="ui-action-chart"
+            class="sidebar-canvas"
+            width="298"
+            height="100"
+          ></canvas>
+        </div>
+        <div class="chart-container">
+          <h3>Survival History (Seconds)</h3>
+          <canvas
+            id="ui-survival-chart"
+            class="sidebar-canvas"
+            width="298"
+            height="100"
+          ></canvas>
+        </div>
+        <div class="chart-container">
+          <h3>Score History</h3>
+          <canvas
+            id="ui-score-chart"
+            class="sidebar-canvas"
+            width="298"
+            height="100"
+          ></canvas>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/scenes/PPOPendulum_main.ts"></script>
+  </body>
+</html>
