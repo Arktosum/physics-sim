@@ -5,6 +5,8 @@ import type { Task } from '../sim/Task';
 const SCORE_WINDOW = 100;
 const CHART_HISTORY_LIMIT = 200;
 const EMA_WEIGHT = 0.01;
+const ACTION_HISTORY_LIMIT = 200; // For the rolling histogram
+const MAX_EPISODE_STEPS = 2000;   // The truncation safety net
 
 function pushCapped(arr: number[], value: number, limit: number): void {
     arr.push(value);
@@ -53,6 +55,10 @@ export class ReinforceTrainer {
     public readonly survivalTimeHistory: number[] = [];
     private readonly dt = 0.016;
 
+    public readonly actionHistory: number[] = [];
+    public currentGradientClipRate = 0;
+    public currentEntropy = 0;
+
     constructor(agent: ReinforceAgent, task: Task, timeBudgetMs: number) {
         this.agent = agent;
         this.task = task;
@@ -67,13 +73,15 @@ export class ReinforceTrainer {
         this.currentMean = mean;
         this.currentStd = std;
 
+        // Keep the rolling histogram of actions updated every single step
+        pushCapped(this.actionHistory, clampedAction, ACTION_HISTORY_LIMIT);
+
         const { nextState, reward, done } = this.task.step(clampedAction);
-
         this.buffer.add({ state: this.currentState, rawAction, mean, std, reward });
-
         this.stepsThisEpisode++;
 
-        if (done) {
+        // THE SAFETY NET: If the agent survives perfectly, cut it off at MAX_EPISODE_STEPS
+        if (done || this.stepsThisEpisode >= MAX_EPISODE_STEPS) {
             this.score += reward;
             this.onEpisodeEnd();
         } else {
@@ -85,14 +93,17 @@ export class ReinforceTrainer {
     }
 
     private onEpisodeEnd(): void {
-        // --- Learn from the WHOLE episode now that it's finished ---
         const episodeData = this.buffer.getEpisode();
         if (episodeData.length > 0) {
             const metrics = this.agent.learn(episodeData);
             if (!Number.isNaN(metrics.actorLoss) && !Number.isNaN(metrics.criticLoss)) {
                 this.currentActorLoss = this.currentActorLoss * (1 - EMA_WEIGHT) + metrics.actorLoss * EMA_WEIGHT;
                 this.currentCriticLoss = this.currentCriticLoss * (1 - EMA_WEIGHT) + metrics.criticLoss * EMA_WEIGHT;
-                this.currentAdvantage = metrics.avgAdvantage;
+
+                this.currentAdvantage = metrics.avgAbsoluteAdvantage;
+                this.currentGradientClipRate = metrics.gradientClipRate;
+                this.currentEntropy = metrics.avgEntropy;
+
                 pushCapped(this.actorLossHistory, this.currentActorLoss, CHART_HISTORY_LIMIT);
                 pushCapped(this.criticLossHistory, this.currentCriticLoss, CHART_HISTORY_LIMIT);
             }

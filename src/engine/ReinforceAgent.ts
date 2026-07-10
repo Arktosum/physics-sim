@@ -33,8 +33,8 @@ export class ReinforceAgent {
     public actor: NeuralNetwork;   // state -> [meanRaw, logStdRaw]
     public critic: NeuralNetwork;  // state -> [V(s)]
 
-    public actorLearningRate: number = 0.0005;
-    public criticLearningRate: number = 0.001; // baseline is a simpler regression target, can usually move a bit faster
+    public actorLearningRate: number = 0.00005;
+    public criticLearningRate: number = 0.002; // baseline is a simpler regression target, can usually move a bit faster
     public gamma: number = 0.99;
 
     constructor(inputSize: number) {
@@ -99,7 +99,13 @@ export class ReinforceAgent {
      * trajectory. Unlike DQNAgent.replay(), there's no batch sampling —
      * every step of the episode gets used, in order, exactly once.
      */
-    public learn(episode: Transition[]): { actorLoss: number; criticLoss: number; avgAdvantage: number } {
+    public learn(episode: Transition[]): {
+        actorLoss: number;
+        criticLoss: number;
+        avgAbsoluteAdvantage: number;
+        gradientClipRate: number;
+        avgEntropy: number
+    } {
         // --- STEP 1: Compute discounted returns G_t, walking backward through the episode ---
         const returns: number[] = new Array(episode.length);
         let runningReturn = 0;
@@ -110,7 +116,9 @@ export class ReinforceAgent {
 
         let totalCriticLoss = 0;
         let totalActorLoss = 0;
-        let totalAdvantage = 0;
+        let totalAbsoluteAdvantage = 0;
+        let totalEntropy = 0;
+        let clipCount = 0;
 
         // --- STEP 1.5: Compute raw advantages first, THEN normalize across the
         // whole episode (subtract mean, divide by std). This is the standard
@@ -133,21 +141,29 @@ export class ReinforceAgent {
         // built-in protection, since trainWithGradient() is designed to accept
         // ANY gradient. We clip here instead, at the call site.
         const GRADIENT_CLIP = 5.0;
-        const clipGrad = (g: number) => (isNaN(g) ? 0 : clamp(g, -GRADIENT_CLIP, GRADIENT_CLIP));
+        const clipGrad = (g: number) => {
+            if (isNaN(g)) return 0;
+            if (Math.abs(g) >= GRADIENT_CLIP) clipCount++;
+            return clamp(g, -GRADIENT_CLIP, GRADIENT_CLIP);
+        };
 
         // --- STEP 2: Walk forward, updating Critic then Actor at each step ---
         for (let t = 0; t < episode.length; t++) {
             const { state, rawAction } = episode[t];
             const G_t = returns[t];
 
-            // Critic: plain regression toward the actual return, same as before.
+            // Critic regression
             const criticLoss = this.critic.train(state, [G_t], this.criticLearningRate);
             totalCriticLoss += criticLoss;
-            totalAdvantage += rawAdvantages[t];
+
+            // TRACK ABSOLUTE ADVANTAGE
+            totalAbsoluteAdvantage += Math.abs(rawAdvantages[t]);
 
             const normalizedAdvantage = (rawAdvantages[t] - advMean) / advStd;
-
             const { mean: liveMean, std: liveStd } = this.decodeActorOutput(state);
+
+            // TRACK ENTROPY for this step
+            totalEntropy += 0.5 * Math.log(2 * Math.PI * Math.E * liveStd * liveStd);
 
             // d(logProb)/d(mean) = (a - mean) / std^2
             const dLogProb_dMean = (rawAction - liveMean) / (liveStd * liveStd);
@@ -171,7 +187,9 @@ export class ReinforceAgent {
         return {
             actorLoss: totalActorLoss / episode.length,
             criticLoss: totalCriticLoss / episode.length,
-            avgAdvantage: totalAdvantage / episode.length,
+            avgAbsoluteAdvantage: totalAbsoluteAdvantage / episode.length,
+            gradientClipRate: clipCount / (episode.length * 2), // * 2 because we clip mean and std gradients
+            avgEntropy: totalEntropy / episode.length
         };
     }
 

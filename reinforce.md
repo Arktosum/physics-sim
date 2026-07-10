@@ -101,12 +101,54 @@ environment (N ~100–200, ring buffer).
 
 ---
 
-## Open questions before implementation
 
-- Bin count/width for the action histogram — 21 bins @ 0.1 width assumed
-  above, easy to change.
-- Whether the action histogram rebuilds every episode or has its own shorter
-  rolling window independent of episode boundaries (matters more once
-  episodes get long).
-- Sidebar chart sizing/layout once everything moves off-canvas — will sketch
-  once the metric list above is confirmed.
+
+# REINFORCE Architecture — Diagnostic Report 
+
+**Conclusion:** Vanilla REINFORCE is mathematically insufficient for the Double Pendulum environment due to inherent instability. Transition to PPO required.
+
+---
+
+## 1. Observed Symptoms (The Collapse)
+
+During the live training of the `ReinforceAgent` on the `DoublePendulumTask`, the agent consistently exhibited a rapid and fatal mathematical collapse. The newly implemented DOM UI dashboard successfully captured the exact mechanics of this failure in real-time.
+
+### Symptom A: Action Distribution "Wall" Slam
+* **Observation:** The action histogram began as a healthy, spread-out Bell curve. After a random fluctuation where the agent survived slightly longer, the histogram violently collapsed.
+* **Result:** All actions became permanently glued to either `-1.0` or `+1.0`. The agent effectively held a single direction key down forever.
+
+### Symptom B: The -1.581 Entropy Floor
+* **Observation:** The Policy Entropy metric plummeted and locked exactly at `-1.581`.
+* **Mathematical Proof:** In our code, we hardcoded `LOG_STD_MIN = -3.0` to prevent division by zero. This clamps the standard deviation ($\sigma$) at `Math.exp(-3.0) ≈ 0.0497`.
+* **Calculation:** The entropy of a continuous Gaussian is `0.5 * ln(2 * π * e * σ²)`. Plugging in our floor: `0.5 * ln(2 * π * e * (0.0497)²) = -1.581`.
+* **Meaning:** The network became so violently overconfident in a single action that it tried to shrink its uncertainty ($\sigma$) to absolute zero, hitting our mathematical safety net and getting permanently stuck.
+
+### Symptom C: Score Flatline
+* **Observation:** The moving average score flatlined near `0`. 
+* **Meaning:** The agent was surviving for exactly ~20 frames (earning +20 points) before immediately failing the boundary/angle constraints (taking the -20 penalty). $20 - 20 = 0$.
+
+---
+
+## 2. Root Cause Analysis: Catastrophic Overconfidence
+
+The collapse is a textbook example of the fundamental flaw in Vanilla Policy Gradients when applied to chaotic, continuous control environments.
+
+1. **The Spark:** By pure luck, the Actor executes a random twitch that keeps the pendulum alive for a few extra milliseconds.
+2. **The Critique:** The Critic compares this survival to its baseline and issues a massive positive **Advantage** score.
+3. **The Exploding Gradient:** Because REINFORCE lacks a "speed limit," the Actor receives this massive Advantage and immediately alters its entire neural weight structure to favor that single twitch.
+4. **The Coma:** The Actor pushes its Mean ($\mu$) to infinity (which gets clamped to `1` or `-1` by the `tanh` activation) and its Standard Deviation ($\sigma$) to zero. It becomes completely rigid, deaf, and blind to new data.
+
+---
+
+## 3. The Resolution: Transition to PPO
+
+Tuning hyperparameters (like lowering the Actor's learning rate to `0.00005`) merely delays this inevitable collapse. The Double Pendulum is too chaotic; an overconfident "jerk" will eventually happen.
+
+To solve this, the architecture must be upgraded to **Proximal Policy Optimization (PPO)**. 
+
+### PPO Implementation Requirements:
+1. **The Trust Region (Clipping):** We must abandon the raw REINFORCE loss function. The new Actor loss function must calculate the probability ratio between the *old* policy and the *new* policy.
+2. **The 20% Speed Limit:** We must apply PPO's clipping mechanism (`clip(ratio, 0.8, 1.2)`) to ensure the Actor can never change its action probability by more than 20% in a single update, regardless of how large the Advantage score is.
+3. **On-Policy Batches:** The training loop will shift from "learn at the end of every episode" to "play for N steps, learn on that exact batch, and immediately delete it."
+
+By enforcing monotonic, constrained improvement, PPO will prevent the entropy from collapsing and allow the agent to safely discover the microscopic adjustments required to balance the double pendulum.

@@ -107,10 +107,16 @@ export class DoublePendulumTask implements Task {
         const centerPenalty = Math.abs(rawX - this.centerX) / this.centerX;
         const energyPenalty = 0.02 * Math.abs(thrustFraction);
 
+        // Math.cos(angle) is 1.0 when pointing straight up (0 radians). 
+        // We want to reward being near 1.0.
+        const upReward1 = Math.cos(rawA1); 
+        const upReward2 = Math.cos(rawA2);
+
         const reward = done
             ? -20
-            : 1.0 - (0.5 * Math.abs(rawA1)) - (0.5 * Math.abs(rawA2)) - (0.5 * centerPenalty) - energyPenalty;
+            : (upReward1 + upReward2) - centerPenalty - energyPenalty;
 
+            
         return { nextState, reward, done };
     }
 
@@ -144,12 +150,19 @@ export class DoublePendulumTask implements Task {
         const cartV = (this.cart.position.x - this.cart.oldPosition.x) / this.fixedDt;
 
         return [
-            clamp((this.cart.position.x - this.centerX) / this.centerX, -1, 1),
-            clamp(cartV / 500.0, -1, 1),
-            clamp(a1 / 1.0, -1, 1),
-            clamp(a2 / 1.0, -1, 1),
-            clamp(v1 / 10.0, -1, 1),
-            clamp(v2 / 10.0, -1, 1)
+            clamp((this.cart.position.x - this.centerX) / this.centerX, -1, 1), // Cart Position
+            clamp(cartV / 500.0, -1, 1),                                        // Cart Velocity
+
+            // Pole 1 Continuous Angles
+            Math.sin(a1),
+            Math.cos(a1),
+
+            // Pole 2 Continuous Angles
+            Math.sin(a2),
+            Math.cos(a2),
+
+            clamp(v1 / 10.0, -1, 1),                                            // Pole 1 Angular Velocity
+            clamp(v2 / 10.0, -1, 1)                                             // Pole 2 Angular Velocity
         ];
     }
 }
