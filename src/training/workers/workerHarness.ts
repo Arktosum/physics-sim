@@ -46,7 +46,10 @@ export function runTrainingWorker(opts: TrainingWorkerOptions): void {
     const EVAL_INTERVAL_MS = opts.evalIntervalMs ?? 16;
 
     let renderEnabled = true;
-    let previewMode: 'training' | 'live' = 'training';
+    // defaults to the noise-free policy view: if training is fast enough to
+    // watch at all, the blurry exploration rollout is a worse first look
+    // than what the agent actually believes is best
+    let previewMode: 'training' | 'live' = 'live';
 
     // Perf diagnostics — maxFrameGapMs is measured on the frame timer itself
     // (whether or not a frame is actually sent while rendering is toggled

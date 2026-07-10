@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DQN — rl-physics-sim</title>
+    <link rel="stylesheet" href="/src/styles/showcase.css" />
+  </head>
+  <body>
+    <div class="top-nav"><a href="/index.html">&larr; rl-physics-sim</a> &middot; <a href="/docs/journey/index.html">Journey</a></div>
+    <div class="journey-container">
+<h1>DQN — replacing the table with a network</h1>
+<p>Unlike the other three entries here, this one isn't a blow-by-blow account of a debugging session — DQN's implementation predates this project's habit of writing things up as they happened. What follows is what it does and why, written after the fact, for the same reason the other docs exist: so the design decisions are somewhere other than in the diff.</p>
+<h2>Why move on from Q-learning at all</h2>
+<p><a href="01-q-learning.md">Q-learning</a> worked, but its ceiling was structural: a table indexed by discretized state has size <code>bins^dimensions</code>, and coverage of that table gets worse, not better, as the grid gets finer — the states that most need precision (near the failure boundary) are the ones a decent policy visits least. The fix isn't a better table. It's not using a table.</p>
+<h2>The core swap</h2>
+<p><code>QLearningAgent.getQValues(state: string)</code> returns a row out of a <code>Map&lt;string, number[]&gt;</code>. <code>DQNAgent.getQValues(state: number[])</code> returns the output of a forward pass through a small neural network (two 64-unit hidden layers, ReLU, same <code>DenseLayer</code>/<code>NeuralNetwork</code> building blocks every other agent in this project uses). Same shape of answer — one Q-value per action — computed instead of looked up. The state is passed in as its raw continuous <code>number[]</code> form; there's no discretization step at all, so the <code>bins^dimensions</code> problem doesn't exist here by construction.</p>
+<p>That swap alone doesn't work if you just start backpropagating on every step, though — it introduces two new problems tabular Q-learning never had, because a table has no notion of "nearby" states interfering with each other and a network very much does.</p>
+<h2>Problem 1: correlated samples</h2>
+<p>Consecutive frames of one episode are extremely similar to each other — almost the same state, again and again. Training a network on a stream of highly correlated samples pulls it hard in whatever direction that one trajectory is going, then hard in a different direction on the next trajectory, which is a recipe for oscillation instead of convergence. <code>ReplayBuffer</code> (<code>src/lib/ReplayBuffer.ts</code>) exists to break that correlation: every transition gets stored, and <code>DQNAgent.replay()</code> samples a random batch of 32 from up to 50,000 stored transitions before each training step — turning a highly-correlated stream into something closer to the i.i.d. data SGD actually assumes.</p>
+<h2>Problem 2: chasing a moving target</h2>
+<p>The TD target for Q-learning is <code>reward + gamma * max(Q(nextState))</code>. If <code>Q</code> is the same network you're actively updating, then every gradient step changes the target you're trying to hit on the very next step — the network is chasing its own tail. <code>DQNAgent</code> keeps a second, frozen copy (<code>targetBrain</code>) that only gets synced to match the live network (<code>brain</code>) every <code>targetUpdateFreq</code> (200) training steps. The TD target is computed from this frozen copy, so it stays still long enough for the live network to actually converge toward it before it moves again.</p>
+<h2>Exploration: still epsilon-greedy</h2>
+<p>Q-learning's later iterations moved to UCB exploration (see <a href="01-q-learning.md">01-q-learning.md</a>) because count-based confidence bonuses are cheap to compute from a table's visit counts. A network doesn't expose per-state visit counts the same way, so DQN keeps the simpler, standard approach instead: epsilon-greedy, starting fully random (<code>epsilon = 1.0</code>) and decaying multiplicatively (<code>× 0.9995</code> per episode) down to a floor (<code>epsilonMin = 0.01</code>), so the agent always keeps a small amount of randomness rather than ever fully committing to what it currently believes is best.</p>
+<h2>What carried over unchanged</h2>
+<p>Because every algorithm in this project targets the same <code>Task</code> interface, none of the physics, reward shaping, or episode-termination logic needed to be rewritten for DQN — <code>DoublePendulumTask</code>/<code>SinglePendulumTask</code> are shared verbatim with Q-learning, PPO, and REINFORCE. The only things that changed between the tabular and neural agent are inside <code>DQNAgent</code> itself: state representation (string key → raw vector), the lookup itself (map → forward pass), and the two stabilizers above.</p>
+<h2>Where this sits in the lineup</h2>
+<p>DQN gets discrete actions right — no discretization of the <em>state</em>, still a fixed menu of <em>actions</em> to choose from (see <code>THRUST_LEVELS</code> in the worker wiring). The next problem was continuous <em>actions</em>: precisely how hard to push, not just which of seven preset thrust levels to pick. That's what <a href="03-reinforce.md">REINFORCE</a> takes on next, at the cost of a new instability DQN never had to deal with.</p>
+
+    <div class="journey-nav">
+      <span><a href="/docs/journey/01-q-learning.html">&larr; Q-Learning</a></span>
+      <span><a href="/docs/journey/03-reinforce.html">REINFORCE &rarr;</a></span>
+    </div>
+    </div>
+  </body>
+</html>

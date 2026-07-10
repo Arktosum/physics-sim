@@ -41,6 +41,7 @@ export interface StatRow<M> {
     label: string;
     get(m: M): string;
     status?(m: M): StatusBadge | null;
+    info?: string; // shown in a hover/focus tooltip next to the label
 }
 
 export interface StatGroup<M> {
@@ -53,6 +54,7 @@ export interface ChartSpec<M> {
     kind: 'line' | 'histogram' | 'histogramWithGaussian' | 'bar';
     get(m: M): number[];
     color?: string;
+    info?: string; // shown in a hover/focus tooltip next to the chart title
     // bar chart only
     barLabels?: string[];
     highlightIndex?(m: M): number;
@@ -77,6 +79,18 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): 
     const e = document.createElement(tag);
     if (className) e.className = className;
     return e;
+}
+
+// pure-CSS hover/focus tooltip — no positioning JS, so it's cheap to attach
+// to every stat row and chart title without a perf concern
+function infoIcon(text: string): HTMLElement {
+    const icon = el('span', 'info-icon');
+    icon.textContent = 'i';
+    icon.tabIndex = 0;
+    const tip = el('span', 'info-tooltip');
+    tip.textContent = text;
+    icon.appendChild(tip);
+    return icon;
 }
 
 export class MetricsPanel<M extends BaseMetrics> {
@@ -128,10 +142,12 @@ export class MetricsPanel<M extends BaseMetrics> {
         container.appendChild(this.buildChart({
             title: 'Survival History (Seconds)', kind: 'line', color: '#4fc1ff',
             get: m => m.survivalTimeHistory,
+            info: 'How long each of the last several training episodes lasted, oldest to newest (left to right). An upward trend means the policy is getting better at not falling.',
         }));
         container.appendChild(this.buildChart({
             title: 'Score History', kind: 'line', color: '#ce9178',
             get: m => m.scoreHistory,
+            info: 'Total reward earned in each of the last several training episodes, oldest to newest. Similar to Survival History, but reflects the exact reward signal the agent is optimizing, not just time-alive.',
         }));
     }
 
@@ -151,6 +167,7 @@ export class MetricsPanel<M extends BaseMetrics> {
         const previewLabel = el('label', 'control-row');
         const previewCheckbox = el('input');
         previewCheckbox.type = 'checkbox';
+        previewCheckbox.checked = true; // matches workerHarness's default previewMode: 'live'
         previewCheckbox.addEventListener('change', () => handlers.onPreviewToggle(previewCheckbox.checked));
         previewLabel.appendChild(previewCheckbox);
         previewLabel.appendChild(document.createTextNode('Live Demo (greedy, no exploration noise)'));
@@ -187,12 +204,12 @@ export class MetricsPanel<M extends BaseMetrics> {
         const group = el('div', 'metric-group');
         group.appendChild(el('h3')).textContent = 'Episode Status';
 
-        this.elEp = this.addRow(group, 'Episode:');
-        this.elScore = this.addRow(group, 'Score:');
-        this.elSurvival = this.addRow(group, 'Survival:');
-        this.elMaxSurvival = this.addRow(group, 'Max Survival:');
-        this.elEvalSurvival = this.addRow(group, 'Live Demo Survival:');
-        this.elEvalMaxSurvival = this.addRow(group, 'Live Demo Best:');
+        this.elEp = this.addRow(group, 'Episode:', 'How many training episodes have run so far. One episode is one attempt, from reset to falling (or timing out).');
+        this.elScore = this.addRow(group, 'Score:', 'Cumulative reward earned in the training episode currently in progress. Includes exploration noise, so it undersells how good the policy actually is.');
+        this.elSurvival = this.addRow(group, 'Survival:', 'How long, in simulated seconds, the current training episode has lasted.');
+        this.elMaxSurvival = this.addRow(group, 'Max Survival:', 'The longest any training episode has lasted so far.');
+        this.elEvalSurvival = this.addRow(group, 'Live Demo Survival:', 'How long the noise-free Live Demo run (a separate environment, driven by the policy\'s best guess with no randomness) has survived.');
+        this.elEvalMaxSurvival = this.addRow(group, 'Live Demo Best:', 'The longest the noise-free Live Demo has ever survived — the most honest single number for "how good is this policy right now."');
 
         return group;
     }
@@ -201,13 +218,13 @@ export class MetricsPanel<M extends BaseMetrics> {
         const group = el('div', 'metric-group');
         group.appendChild(el('h3')).textContent = 'Performance';
 
-        this.elStepsPerSec = this.addRow(group, 'Steps/sec:');
-        this.elLastTrainMs = this.addRow(group, 'Last Train Time:');
-        this.elAvgTrainMs = this.addRow(group, 'Avg Train Time:');
-        const [workerVal, workerBadge] = this.addRowWithBadge(group, 'Worker Max Stall (1s):');
+        this.elStepsPerSec = this.addRow(group, 'Steps/sec:', 'Physics steps the training loop is getting through per second — raw throughput, not learning quality.');
+        this.elLastTrainMs = this.addRow(group, 'Last Train Time:', 'Wall-clock time the most recent learning update took.');
+        this.elAvgTrainMs = this.addRow(group, 'Avg Train Time:', 'Rolling average of how long each learning update takes.');
+        const [workerVal, workerBadge] = this.addRowWithBadge(group, 'Worker Max Stall (1s):', 'Longest gap between the training thread\'s own internal heartbeat over the last second. High values mean the training thread was busy long enough to freeze its own timers — a sign training is CPU-heavy, not that anything is broken.');
         this.elWorkerGap = workerVal;
         this.elWorkerGapStatus = workerBadge;
-        const [renderVal, renderBadge] = this.addRowWithBadge(group, 'Render Max Stall (1s):');
+        const [renderVal, renderBadge] = this.addRowWithBadge(group, 'Render Max Stall (1s):', 'Longest gap between rendered frames on this page over the last second. Since training runs on a separate thread, this should stay smooth (~16ms) regardless of how hard the agent is training.');
         this.elRenderGap = renderVal;
         this.elRenderGapStatus = renderBadge;
 
@@ -220,10 +237,10 @@ export class MetricsPanel<M extends BaseMetrics> {
 
         for (const row of group.rows) {
             if (row.status) {
-                const [value, badge] = this.addRowWithBadge(groupEl, row.label + ':');
+                const [value, badge] = this.addRowWithBadge(groupEl, row.label + ':', row.info);
                 this.rowBindings.push({ value, badge, row });
             } else {
-                const value = this.addRow(groupEl, row.label + ':');
+                const value = this.addRow(groupEl, row.label + ':', row.info);
                 this.rowBindings.push({ value, badge: null, row });
             }
         }
@@ -231,9 +248,12 @@ export class MetricsPanel<M extends BaseMetrics> {
         return groupEl;
     }
 
-    private addRow(group: HTMLElement, label: string): HTMLElement {
+    private addRow(group: HTMLElement, label: string, info?: string): HTMLElement {
         const row = el('div', 'metric-row');
-        row.appendChild(document.createTextNode(label));
+        const labelWrap = el('span', 'metric-label');
+        labelWrap.appendChild(document.createTextNode(label));
+        if (info) labelWrap.appendChild(infoIcon(info));
+        row.appendChild(labelWrap);
         const value = el('span', 'metric-value');
         value.textContent = '0';
         row.appendChild(value);
@@ -241,9 +261,12 @@ export class MetricsPanel<M extends BaseMetrics> {
         return value;
     }
 
-    private addRowWithBadge(group: HTMLElement, label: string): [HTMLElement, HTMLElement] {
+    private addRowWithBadge(group: HTMLElement, label: string, info?: string): [HTMLElement, HTMLElement] {
         const row = el('div', 'metric-row');
-        row.appendChild(document.createTextNode(label));
+        const labelWrap = el('span', 'metric-label');
+        labelWrap.appendChild(document.createTextNode(label));
+        if (info) labelWrap.appendChild(infoIcon(info));
+        row.appendChild(labelWrap);
         const wrap = el('div');
         const value = el('span', 'metric-value');
         value.textContent = '0';
@@ -257,7 +280,10 @@ export class MetricsPanel<M extends BaseMetrics> {
 
     private buildChart(spec: ChartSpec<M>): HTMLElement {
         const container = el('div', 'chart-container');
-        container.appendChild(el('h3')).textContent = spec.title;
+        const heading = el('h3');
+        heading.appendChild(document.createTextNode(spec.title));
+        if (spec.info) heading.appendChild(infoIcon(spec.info));
+        container.appendChild(heading);
         const canvas = el('canvas', 'sidebar-canvas');
         canvas.width = 298;
         canvas.height = 100;

@@ -57,11 +57,11 @@ Then open the printed local URL and click into `index.html` — every demo train
 ### Other scripts
 
 ```bash
-npm run build     # type-checks with tsc, then produces a static dist/ with all 13 pages
+npm run build     # type-checks with tsc, then produces a static dist/ with all 14 pages
 npm run preview   # serve the production build locally to sanity-check it
 ```
 
-`npm run build` is genuinely required if you want to deploy this — Vite only bundles `index.html` by default, so [`vite.config.ts`](vite.config.ts) explicitly lists every HTML entry point (8 demos + the landing page + 4 journey pages).
+`npm run build` is genuinely required if you want to deploy this — Vite only bundles `index.html` by default, so [`vite.config.ts`](vite.config.ts) explicitly lists every HTML entry point (8 demos + the landing page + 5 journey pages).
 
 ## 🧠 Architecture
 
@@ -92,8 +92,9 @@ src/
 [`docs/journey/`](docs/journey/index.html) is a from-the-trenches write-up of how this was actually built, in order — including the wrong turns:
 
 1. **[Q-Learning](docs/journey/01-q-learning.html)** — gets surprisingly far with UCB exploration and symmetry augmentation, then hits a real structural wall: the `bins^dimensions` blowup of discretizing a continuous state space.
-2. **[REINFORCE](docs/journey/02-reinforce.html)** — swaps the table for a neural network, but vanilla policy gradients turn out to be mathematically unstable on a chaotic system: a single lucky episode can send the policy into permanent overconfidence.
-3. **[PPO](docs/journey/03-ppo.html)** — the fix (a trust-region / clipped objective), followed by a much longer investigation into *why the browser stuttered*: a Worker migration, a genuine GAE bootstrap bug, and a real learning-rate regression that mini-batching quietly introduced — caught by building a second, simpler task specifically to sanity-check against.
+2. **[DQN](docs/journey/02-dqn.html)** — replaces the table with a network, and picks up the two stabilizers that make learning from one converge: a replay buffer and a frozen target network.
+3. **[REINFORCE](docs/journey/03-reinforce.html)** — tackles continuous actions, but vanilla policy gradients turn out to be mathematically unstable on a chaotic system: a single lucky episode can send the policy into permanent overconfidence.
+4. **[PPO](docs/journey/04-ppo.html)** — the fix (a trust-region / clipped objective), followed by a much longer investigation into *why the browser stuttered*: a Worker migration, a genuine GAE bootstrap bug, and a real learning-rate regression that mini-batching quietly introduced — caught by building a second, simpler task specifically to sanity-check against.
 
 ## 🛠️ Tech stack
 
@@ -106,3 +107,9 @@ src/
 ## 📄 License
 
 No license file yet — all rights reserved by default. Open an issue if you'd like to use this and I'll sort one out.
+
+
+
+
+
+

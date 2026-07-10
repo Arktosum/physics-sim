@@ -29,16 +29,26 @@
           </p>
         </li>
         <li>
-          <a href="/docs/journey/02-reinforce.html">2. REINFORCE</a>
+          <a href="/docs/journey/02-dqn.html">2. DQN</a>
           <p>
-            Swaps the table for a neural network — no more discretization —
-            but vanilla policy gradients turn out to be mathematically
-            unstable on a chaotic system like this: a single lucky episode
-            can send the policy into total, permanent overconfidence.
+            Replaces the table with a neural network — no more discretization
+            of the state — and picks up the two stabilizers that make
+            learning from a network actually converge: a replay buffer and a
+            frozen target network.
           </p>
         </li>
         <li>
-          <a href="/docs/journey/03-ppo.html">3. PPO</a>
+          <a href="/docs/journey/03-reinforce.html">3. REINFORCE</a>
+          <p>
+            Tackles the other half of the problem — continuous actions, not
+            just continuous state — but vanilla policy gradients turn out to
+            be mathematically unstable on a chaotic system like this: a
+            single lucky episode can send the policy into total, permanent
+            overconfidence.
+          </p>
+        </li>
+        <li>
+          <a href="/docs/journey/04-ppo.html">4. PPO</a>
           <p>
             The fix for REINFORCE's instability (a trust-region / clipped
             objective), then a much longer second story once PPO was

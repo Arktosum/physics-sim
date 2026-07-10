@@ -1,13 +1,16 @@
 /* Shared theme for the landing page, the 8 demo pages, and the journey docs. */
 
 :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface-raised: #1c2229;
-    --border: #2a313c;
+    --bg: #0a0d13;
+    --surface: rgba(24, 30, 40, 0.6);
+    --surface-solid: #161b22;
+    --surface-raised: rgba(32, 39, 51, 0.7);
+    --border: rgba(148, 163, 184, 0.14);
+    --border-strong: rgba(148, 163, 184, 0.26);
     --text: #e6edf3;
     --text-muted: #8b949e;
-    --accent: #4c8dff;
+    --accent: #5b9dff;
+    --accent-2: #34d9c4;
     --accent-dim: #2c5cad;
     --good: #3fb950;
     --warn: #d29922;
@@ -20,46 +23,88 @@
     box-sizing: border-box;
 }
 
+html {
+    background: var(--bg);
+}
+
 body {
     margin: 0;
     padding: 0;
-    background-color: var(--bg);
+    min-height: 100vh;
     color: var(--text);
     font-family: var(--font);
     line-height: 1.5;
+    position: relative;
+    background:
+        radial-gradient(900px 520px at 12% -8%, rgba(91, 157, 255, 0.16), transparent 60%),
+        radial-gradient(800px 480px at 100% 0%, rgba(52, 217, 196, 0.10), transparent 55%),
+        radial-gradient(1000px 600px at 50% 115%, rgba(124, 92, 246, 0.10), transparent 60%),
+        var(--bg);
+    background-attachment: fixed;
+}
+
+/* faint engineering-grid backdrop, purely decorative */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+        linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 90%);
+}
+
+body > * {
+    position: relative;
+    z-index: 1;
 }
 
 a {
     color: var(--accent);
 }
 
-/* Demo pages: canvas + sidebar, centered as a unit in the viewport */
+/* Demo pages: canvas up top, metrics grid below — keeps the page from
+   growing tall as an algorithm accrues more stat groups/charts */
 #app-container {
     display: flex;
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     gap: 24px;
-    max-width: 1160px;
+    max-width: 1400px;
     margin: 0 auto;
-    padding: 32px 20px;
+    padding: 28px 20px 60px;
 }
 
 #sim-canvas {
     background-color: #000;
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(91, 157, 255, 0.05);
+    max-width: 100%;
+    height: auto;
 }
 
+/* Masonry-style: block children stack top-to-bottom within a column, then
+   wrap into the next column — avoids the empty-gap problem a strict CSS
+   grid gets when card heights vary a lot (a 5-row stat group next to a
+   2-row one). This is what keeps the page from turning into one long
+   scroll as an algorithm accrues more stat groups/charts. */
 #sidebar {
-    width: 320px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
+    width: 100%;
+    columns: 300px 3;
+    column-gap: 14px;
+}
+
+#sidebar > * {
+    break-inside: avoid;
+    margin-bottom: 14px;
 }
 
 .top-nav {
-    max-width: 1160px;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 16px 20px 0;
     font-size: 13px;
@@ -75,20 +120,27 @@ a {
     color: var(--accent);
 }
 
-.metric-group {
+.metric-group,
+.chart-container {
     background: var(--surface);
-    padding: 12px 16px;
-    border-radius: 8px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 14px 16px;
+    border-radius: 10px;
     border: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 28px -18px rgba(0, 0, 0, 0.7);
 }
 
-.metric-group h3 {
+.metric-group h3,
+.chart-container h3 {
     margin: 0 0 10px 0;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: center;
 }
 
 .metric-row {
@@ -97,12 +149,80 @@ a {
     margin-bottom: 4px;
     font-size: 13px;
     align-items: center;
+    gap: 8px;
+}
+
+.metric-label {
+    display: inline-flex;
+    align-items: center;
+    color: #c9d1d9;
 }
 
 .metric-value {
     font-weight: 600;
     font-family: var(--font-mono);
     color: var(--text);
+    white-space: nowrap;
+}
+
+/* Info tooltip: a small "i" badge next to a label/title. Pure CSS
+   hover/focus reveal — cheap enough to put on every stat row. */
+.info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 6px;
+    border-radius: 50%;
+    border: 1px solid var(--text-muted);
+    color: var(--text-muted);
+    font-size: 9px;
+    font-style: italic;
+    font-family: Georgia, serif;
+    cursor: help;
+    position: relative;
+    flex-shrink: 0;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.info-icon:hover,
+.info-icon:focus {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+}
+
+.info-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+    position: absolute;
+    bottom: 130%;
+    left: 0;
+    width: 220px;
+    max-width: 60vw;
+    background: #10141b;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 400;
+    font-family: var(--font);
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text);
+    line-height: 1.45;
+    z-index: 30;
+    box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+}
+
+.info-icon:hover .info-tooltip,
+.info-icon:focus .info-tooltip {
+    visibility: visible;
+    opacity: 1;
 }
 
 .status-badge {
@@ -125,28 +245,12 @@ a {
     color: var(--bad);
 }
 
-.chart-container {
-    background: var(--surface);
-    padding: 12px 16px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-}
-
-.chart-container h3 {
-    margin: 0 0 8px 0;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
 .sidebar-canvas {
     width: 100%;
-    height: 100px;
-    background: var(--bg);
+    height: 90px;
+    background: rgba(0, 0, 0, 0.35);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: 6px;
 }
 
 .control-row {
@@ -169,7 +273,7 @@ a {
 
 .file-label {
     cursor: pointer;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-strong);
     padding: 5px 10px;
     border-radius: 6px;
     font-size: 13px;
@@ -181,42 +285,67 @@ a {
     border-color: var(--accent);
 }
 
+button {
+    font-family: var(--font);
+    background: linear-gradient(180deg, rgba(91, 157, 255, 0.22), rgba(91, 157, 255, 0.14));
+    color: var(--text);
+    border: 1px solid rgba(91, 157, 255, 0.35);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+button:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+
 /* Landing page */
 #showcase-container {
-    max-width: 900px;
+    max-width: 920px;
     margin: 0 auto;
-    padding: 56px 20px 80px;
+    padding: 64px 20px 80px;
 }
 
 .showcase-eyebrow {
-    color: var(--accent);
+    color: var(--accent-2);
     font-size: 13px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin: 0 0 8px;
+    letter-spacing: 0.08em;
+    margin: 0 0 10px;
 }
 
 #showcase-container h1 {
     margin: 0 0 16px;
-    font-size: 32px;
+    font-size: 34px;
     font-weight: 700;
+    letter-spacing: -0.01em;
+    background: linear-gradient(120deg, #ffffff 20%, var(--accent) 65%, var(--accent-2) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
 }
 
 #showcase-container p.lede {
     color: var(--text-muted);
     max-width: 680px;
-    font-size: 15px;
+    font-size: 15.5px;
 }
 
 .engine-note {
     background: var(--surface);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 18px 20px;
-    margin-top: 24px;
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-top: 26px;
     font-size: 14px;
     color: var(--text-muted);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
 }
 
 .engine-note strong {
@@ -232,18 +361,21 @@ a {
 
 .showcase-card {
     background: var(--surface);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 18px;
     text-decoration: none;
     color: var(--text);
     display: block;
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .showcase-card:hover {
-    border-color: var(--accent);
-    transform: translateY(-1px);
+    border-color: rgba(91, 157, 255, 0.5);
+    transform: translateY(-2px);
+    box-shadow: 0 16px 36px -18px rgba(91, 157, 255, 0.35);
 }
 
 .showcase-card h3 {
@@ -259,10 +391,22 @@ a {
 }
 
 .showcase-section-title {
-    margin-top: 44px;
+    margin-top: 46px;
     color: var(--text);
     font-size: 15px;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.showcase-section-title::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: inline-block;
 }
 
 .showcase-section-desc {
@@ -282,6 +426,7 @@ a {
 .journey-container h1 {
     font-size: 28px;
     margin: 0 0 8px;
+    letter-spacing: -0.01em;
 }
 
 .journey-container h2 {
@@ -333,14 +478,14 @@ a {
 
 .journey-container code {
     font-family: var(--font-mono);
-    background: var(--surface);
+    background: var(--surface-solid);
     padding: 1px 5px;
     border-radius: 4px;
     font-size: 0.9em;
 }
 
 .journey-container pre {
-    background: var(--surface);
+    background: var(--surface-solid);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 14px 16px;
@@ -379,8 +524,10 @@ a {
 
 .journey-index-list li {
     background: var(--surface);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 16px 18px;
 }
 
