@@ -10,7 +10,7 @@ export class CartPoleEnv {
     private tau: number = 0.02; // seconds between state updates
 
     // The Wolves (Fail conditions)
-    private thetaThresholdRadians: number = (12 * 2 * Math.PI) / 360; // 12 degrees
+    private thetaThresholdRadians: number = (24 * 2 * Math.PI) / 360; // 12 degrees
     private xThreshold: number = 2.4;
 
     public state: [number, number, number, number];

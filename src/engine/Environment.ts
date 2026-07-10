@@ -41,7 +41,7 @@ export class Environment {
 
         // Step C: Constrain the positions (The Relaxation Loop)
         // We run this 5 times per frame to ensure structural rigidity
-        const iterations = 5;
+        const iterations = 50;
         for (let i = 0; i < iterations; i++) {
             for (const constraint of this.constraints) {
                 constraint.resolve();

@@ -65,4 +65,38 @@ export class NeuralNetwork {
 
         return mseLoss;
     }
+
+    /**
+     * BACKWARD PASS WITH A CUSTOM GRADIENT (for Actor networks)
+     *
+     * DQN's Critic/baseline networks learn by regression toward a target array,
+     * so `train()`'s built-in "prediction - target" MSE gradient is exactly right
+     * for them. An Actor in DDPG/REINFORCE/PPO does NOT learn by regression —
+     * DDPG needs dQ/da chained back through the Actor, REINFORCE/PPO need
+     * -logProb(a|s) * Advantage. Both are just "some gradient w.r.t. the
+     * network's output", so this method does the forward pass, skips the MSE
+     * step entirely, and backprops whatever gradient the caller computed.
+     */
+    public trainWithGradient(inputArray: number[], outputGradient: number[], learningRate: number): void {
+        // --- STEP 1: Forward Pass (must run first so each layer caches its input) ---
+        let currentData = new Matrix(inputArray.length, 1);
+        for (let i = 0; i < inputArray.length; i++) {
+            currentData.data[i] = inputArray[i];
+        }
+
+        for (const layer of this.layers) {
+            currentData = layer.forward(currentData);
+        }
+
+        // --- STEP 2: Load the caller's gradient directly, no MSE/clipping involved ---
+        let gradient = new Matrix(outputGradient.length, 1);
+        for (let i = 0; i < outputGradient.length; i++) {
+            gradient.data[i] = outputGradient[i];
+        }
+
+        // --- STEP 3: Backward Pass, identical mechanics to train() ---
+        for (let i = this.layers.length - 1; i >= 0; i--) {
+            gradient = this.layers[i].backward(gradient, learningRate);
+        }
+    }
 }
